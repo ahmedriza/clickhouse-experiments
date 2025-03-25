@@ -112,6 +112,19 @@ inline uint64 Hash128to64(const uint128& x) {
   return b;
 }
 
+// See
+// https://github.com/HUD-Software/cityhash-sys/blob/master/src/google/city.h
+// Hash 128 usable with C compatible ABI
+extern "C" void CityHash128(
+    char const *s, 
+    size_t len, 
+    uint64* result_low_128, 
+    uint64* result_high_128 ) {
+  const uint128 result_128 = CityHash128(s, len);
+  *result_low_128 = Uint128Low64(result_128);
+  *result_high_128 = Uint128High64(result_128);
+}
+
 }
 
 #endif  // CITY_HASH_H_
