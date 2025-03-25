@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+  "storage",
+  "cityhash-clickhouse-sys",
+]
+
+[profile.release]
+debug = 1
