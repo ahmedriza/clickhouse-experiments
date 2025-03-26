@@ -1,28 +1,27 @@
 use byteorder::ReadBytesExt;
-use std::io::{BufReader, Read};
+use cityhash_clickhouse_sys::u128_low_high::LowHigh;
+use std::io::{BufReader, Cursor, Read, Seek};
 
+// In a ClickHouse columnar data file, the first 16 bytes are the checksum.
+// The next 9 bytes are the header.
+// This is followed by the data (which may be compressed or uncompressed
+// depending on the column setting) for the row.
+//
+// Each row entry is encoded like that.
+//
+// The checksum is calculated using CityHash128 and uses the header + the
+// compressed data bits for the calculation.
+
+// 128 bits for checksum (CityHash64)
+const CITY_HASH_SIZE: usize = std::mem::size_of::<u128>();
+
+// 1 byte for compression method,
+// 4 bytes for compressed size,
+// 4 bytes for uncompressed size */
+const __HEADER_SIZE: usize = 0x9;
 //
 // Read a ClickHouse columnar compact data file
 // The file contains a string and an integer
-//
-// References to ClickHouse source code:
-//
-// MergeTreeReadTask::BlockAndProgress MergeTreeReadTask::read()
-// MergeTreeReadersChain::ReadResult MergeTreeReadersChain::read(size_t max_rows, MarkRanges & ranges)
-// MergeTreeRangeReader::ReadResult MergeTreeRangeReader::startReadingChain
-// size_t MergeTreeRangeReader::Stream::finalize
-// size_t MergeTreeRangeReader::DelayedStream::finalize
-// size_t MergeTreeRangeReader::DelayedStream::readRows
-// size_t MergeTreeReaderCompactSingleBuffer::readRows
-// void MergeTreeReaderCompact::readData
-// void ISerialization::deserializeBinaryBulkWithMultipleStreams(
-// static NO_INLINE void deserializeBinarySSE2 (SerializationString.cpp)
-// DB::ReadBuffer::next()
-// bool CompressedReadBufferFromFile::nextImpl()
-// size_t CompressedReadBufferBase::readCompressedData(
-//     size_t & size_decompressed,
-//     size_t & size_compressed_without_checksum, bool always_copy)
-//
 //
 fn main() -> anyhow::Result<()> {
     let ch_root = "/opt/clickhouse/clickhouse/store";
@@ -30,8 +29,8 @@ fn main() -> anyhow::Result<()> {
 
     // Part data files. In compact format, all the data is stored in a single file
     // called `data.bin`.
-    let filename = format!("{}/249/{}/all_1_1_0/data.bin", ch_root, part_name);
-    // let filename = format!("{}/249/{}/all_2_2_0/data.bin", ch_root, part_name);
+    // let filename = format!("{}/249/{}/all_1_1_0/data.bin", ch_root, part_name);
+    let filename = format!("{}/249/{}/all_2_2_0/data.bin", ch_root, part_name);
 
     println!("Reading ClickHouse columnar data from {}", filename);
 
@@ -39,101 +38,126 @@ fn main() -> anyhow::Result<()> {
     println!("File length: {}", file.metadata()?.len());
     let mut reader = BufReader::new(file);
 
-    _read_compressed_data(&mut reader)?;
+    read(&mut reader)?;
 
     Ok(())
 }
 
-fn _read_compressed_data(reader: &mut BufReader<std::fs::File>) -> anyhow::Result<()> {
-    // 128 bits for checksum (CityHash64)
-    let _size_of_checksum = 16;
-    // 1 byte for compression method,
-    // 4 bytes for compressed size,
-    // 4 bytes for uncompressed size */
-    let _header_size = 0x9;
-
+fn read(reader: &mut BufReader<std::fs::File>) -> anyhow::Result<()> {
     println!();
     println!("Reading first data block");
-    let _compression_info = __read_header_and_get_codec_and_size(reader)?;
-    // __validate_checksum(&[])?;
-
+    let _compression_info = read_header_and_get_codec_and_size(reader)?;
     // Create a buffer sized to:
     // sizeof(Checksum) + size_compressed_without_checksum + additional_size_at_the_end_of_buffer
     // Compressed buffer starts after the checksum
-    _read_string(reader)?;
+    read_string(reader)?;
+    // validate_checksum(reader, &compression_info)?;
 
     println!();
     println!("Reading second data block");
-
-    let _compression_info = __read_header_and_get_codec_and_size(reader)?;
-    // __validate_checksum(&[])?;
-    _read_int(reader, &_compression_info)?;
+    let compression_info = read_header_and_get_codec_and_size(reader)?;
+    read_int(reader, &compression_info)?;
+    // validate_checksum(reader, &compression_info)?;
 
     Ok(())
 }
 
 //
 // CompressedReadBufferBase.cpp
-fn __read_header_and_get_codec_and_size(
+fn read_header_and_get_codec_and_size(
     reader: &mut BufReader<std::fs::File>,
 ) -> anyhow::Result<CompressionInfo> {
-    // skip the 16 bytes of checksum
-    // reader.seek(std::io::SeekFrom::Current(16))?;
-    //
     // Read 16 bytes of checksum
-    let mut buffer = [0u8; 16];
+    let mut buffer = [0u8; CITY_HASH_SIZE];
     reader.read_exact(&mut buffer)?;
-    let checksum = buffer;
+    let checksum_bytes = buffer;
+    println!("{:35} {:x?}", "Checksum:", checksum_bytes);
 
-    let mut buffer = [0u8; 1];
-    reader.read_exact(&mut buffer)?;
-    let compression_method = CompressMethod::from_u8(buffer[0]);
-    println!("Compression method: {:?}", compression_method);
+    let _method = reader.read_u8()?;
+    let compression_method = CompressMethod::from_u8(_method);
 
+    // let compression_method = CompressMethod::from_u8(buffer[0]);
+    println!("{:35} {:?}", "Compression method:", compression_method);
+
+    // The next 4 bytes are the size of the compressed data
     let mut buffer = [0u8; 4];
     reader.read_exact(&mut buffer)?;
     let size_compressed_without_checksum = u32::from_le_bytes(buffer);
     println!(
-        "Compressed size without checksum: {}",
-        size_compressed_without_checksum
+        "{:35} {:?}",
+        "Compressed size without checksum:", size_compressed_without_checksum
     );
 
+    // The next 4 bytes are the size of the decompressed data
     let mut buffer = [0u8; 4];
     reader.read_exact(&mut buffer)?;
     let size_decompressed = u32::from_le_bytes(buffer);
-    println!("Decompressed size: {}", size_decompressed);
+    println!("{:35} {:?}", "Decompressed size:", size_decompressed);
 
     // Read additional bytes based on the compression method
     // Some codecs like (LZ4 for example), require additional bytes at
     // end of buffer
     let _additional_size_at_the_end_of_buffer = 0;
 
+    // Seek back to read the compressed data block
+    reader.seek(std::io::SeekFrom::Current(-(__HEADER_SIZE as i64)))?;
+    let mut data_bytes = vec![0u8; size_compressed_without_checksum as usize];
+    reader.read_exact(&mut data_bytes)?;
+    __validate_checksum(&data_bytes, &checksum_bytes)?;
+
+    // adjust the reader position to the start of the data block
+    // go back to the beginning of the compressed data block
+    // and then skip the header
+    reader.seek(std::io::SeekFrom::Current(
+        -(size_compressed_without_checksum as i64),
+    ))?;
+    reader.seek(std::io::SeekFrom::Current(__HEADER_SIZE as i64))?;
+
     let compression_info = CompressionInfo {
-        checksum,
+        checksum_bytes,
         compression_method,
-        size_compressed: size_compressed_without_checksum,
+        size_compressed_without_checksum,
         size_decompressed,
     };
 
     Ok(compression_info)
 }
 
-fn _read_string(reader: &mut BufReader<std::fs::File>) -> anyhow::Result<()> {
+fn __validate_checksum(data_bytes: &[u8], checksum_bytes: &[u8]) -> anyhow::Result<()> {
+    let mut cursor = Cursor::new(checksum_bytes);
+    let _low = cursor.read_u64::<byteorder::LittleEndian>()?;
+    let _high = cursor.read_u64::<byteorder::LittleEndian>()?;
+    println!("{:35} {:20}, high: {}", "Checksum actual low:", _low, _high);
+
+    let calculated = cityhash_clickhouse_sys::cityhash::city_hash_128(&data_bytes);
+    let _calculated_low = calculated.low_half();
+    let _calculated_high = calculated.high_half();
+    println!(
+        "{:35} {:20}, High: {}",
+        "Checksum calculated Low:", _calculated_low, _calculated_high
+    );
+
+    Ok(())
+}
+
+fn read_string(reader: &mut BufReader<std::fs::File>) -> anyhow::Result<()> {
     // read past the header of 9 bytes
     // amount to read: size_compressed_without_checksum - header_size
     // let _n = size_compressed_without_checksum as usize - header_size;
     // println!("Reading data block of size: {}", _n);
     // The first unsigned byte is the length of the string
     let len = reader.read_u8()?;
+    println!("Length: {}", len);
     let mut buffer = vec![0u8; len as usize];
     reader.read_exact(&mut buffer)?;
+    println!("buffer: {:x?}", buffer);
     let s = std::str::from_utf8(&buffer)?;
     println!("String: {}", s);
 
     Ok(())
 }
 
-fn _read_int(
+fn read_int(
     reader: &mut BufReader<std::fs::File>,
     compression_info: &CompressionInfo,
 ) -> anyhow::Result<()> {
@@ -144,17 +168,10 @@ fn _read_int(
     Ok(())
 }
 
-// Validate checksum of data, and if it mismatches, find out possible reason
-// and return an error.
-fn __validate_checksum(_data: &[u8]) -> anyhow::Result<()> {
-    // calculate CityHash128 of the data
-    todo!()
-}
-
 pub struct CompressionInfo {
-    pub checksum: [u8; 16],
+    pub checksum_bytes: [u8; CITY_HASH_SIZE],
     pub compression_method: CompressMethod,
-    pub size_compressed: u32,
+    pub size_compressed_without_checksum: u32,
     pub size_decompressed: u32,
 }
 
@@ -209,7 +226,7 @@ impl CompressMethod {
 #[cfg(test)]
 mod test {
 
-    use cityhash_sys::city_hash_64;
+    use cityhash_clickhouse_sys::cityhash::city_hash_64;
 
     #[test]
     fn test_city_hash() {

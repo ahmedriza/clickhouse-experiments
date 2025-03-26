@@ -1,3 +1,22 @@
+// References to ClickHouse source code:
+//
+// MergeTreeReadTask::BlockAndProgress MergeTreeReadTask::read()
+// MergeTreeReadersChain::ReadResult MergeTreeReadersChain::read(size_t max_rows, MarkRanges & ranges)
+// MergeTreeRangeReader::ReadResult MergeTreeRangeReader::startReadingChain
+// size_t MergeTreeRangeReader::Stream::finalize
+// size_t MergeTreeRangeReader::DelayedStream::finalize
+// size_t MergeTreeRangeReader::DelayedStream::readRows
+// size_t MergeTreeReaderCompactSingleBuffer::readRows
+// void MergeTreeReaderCompact::readData
+// void ISerialization::deserializeBinaryBulkWithMultipleStreams(
+// static NO_INLINE void deserializeBinarySSE2 (SerializationString.cpp)
+// DB::ReadBuffer::next()
+// bool CompressedReadBufferFromFile::nextImpl()
+// size_t CompressedReadBufferBase::readCompressedData(
+//     size_t & size_decompressed,
+//     size_t & size_compressed_without_checksum, bool always_copy)
+//
+
 // DB::HttpHandler::handleRequest                   -- HttpHandler.cpp:749
 // DB::HttpHandler::processQuery                    -- HttpHandler.cpp:576
 // DB::executeQuery                                 -- executeQuery.cpp:1891

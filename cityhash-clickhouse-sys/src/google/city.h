@@ -47,6 +47,8 @@
 #include <stdint.h>
 #include <utility>
 
+#include <stdio.h>
+
 /** This is a version of CityHash that predates v1.0.3 algorithm change.
   * Why we need exactly this version?
   * Although hash values of CityHash are not recommended for storing persistently anywhere,
