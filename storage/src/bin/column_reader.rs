@@ -12,8 +12,8 @@ use std::io::{BufReader, Cursor, Read, Seek};
 // The checksum is calculated using CityHash128 and uses the header + the
 // compressed data bits for the calculation.
 
-// 128 bits for checksum (CityHash64)
-const CITY_HASH_SIZE: usize = std::mem::size_of::<u128>();
+// 128 bits for checksum (CityHash128)
+const CHECKSUM_SIZE: usize = std::mem::size_of::<u128>();
 
 // 1 byte for compression method,
 // 4 bytes for compressed size,
@@ -68,7 +68,7 @@ fn read_header_and_get_codec_and_size(
     reader: &mut BufReader<std::fs::File>,
 ) -> anyhow::Result<CompressionInfo> {
     // Read 16 bytes of checksum
-    let mut buffer = [0u8; CITY_HASH_SIZE];
+    let mut buffer = [0u8; CHECKSUM_SIZE];
     reader.read_exact(&mut buffer)?;
     let checksum_bytes = buffer;
     println!("{:35} {:x?}", "Checksum:", checksum_bytes);
@@ -168,7 +168,7 @@ fn read_int(
 }
 
 pub struct CompressionInfo {
-    pub checksum_bytes: [u8; CITY_HASH_SIZE],
+    pub checksum_bytes: [u8; CHECKSUM_SIZE],
     pub compression_method: CompressMethod,
     pub size_compressed_without_checksum: u32,
     pub size_decompressed: u32,
