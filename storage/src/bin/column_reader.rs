@@ -29,8 +29,8 @@ fn main() -> anyhow::Result<()> {
 
     // Part data files. In compact format, all the data is stored in a single file
     // called `data.bin`.
-    // let filename = format!("{}/249/{}/all_1_1_0/data.bin", ch_root, part_name);
-    let filename = format!("{}/249/{}/all_2_2_0/data.bin", ch_root, part_name);
+    let filename = format!("{}/249/{}/all_1_1_0/data.bin", ch_root, part_name);
+    // let filename = format!("{}/249/{}/all_2_2_0/data.bin", ch_root, part_name);
 
     println!("Reading ClickHouse columnar data from {}", filename);
 
@@ -127,13 +127,13 @@ fn __validate_checksum(data_bytes: &[u8], checksum_bytes: &[u8]) -> anyhow::Resu
     let mut cursor = Cursor::new(checksum_bytes);
     let _low = cursor.read_u64::<byteorder::LittleEndian>()?;
     let _high = cursor.read_u64::<byteorder::LittleEndian>()?;
-    println!("{:35} {:20}, high: {}", "Checksum actual low:", _low, _high);
+    println!("{:35} {}, high: {}", "Checksum actual low:", _low, _high);
 
     let calculated = cityhash_clickhouse_sys::cityhash::city_hash_128(&data_bytes);
     let _calculated_low = calculated.low_half();
     let _calculated_high = calculated.high_half();
     println!(
-        "{:35} {:20}, High: {}",
+        "{:35} {}, High: {}",
         "Checksum calculated Low:", _calculated_low, _calculated_high
     );
 
@@ -147,12 +147,11 @@ fn read_string(reader: &mut BufReader<std::fs::File>) -> anyhow::Result<()> {
     // println!("Reading data block of size: {}", _n);
     // The first unsigned byte is the length of the string
     let len = reader.read_u8()?;
-    println!("Length: {}", len);
+    println!("{:35} {}", "Length:", len);
     let mut buffer = vec![0u8; len as usize];
     reader.read_exact(&mut buffer)?;
-    println!("buffer: {:x?}", buffer);
     let s = std::str::from_utf8(&buffer)?;
-    println!("String: {}", s);
+    println!("{:35} {}", "String:", s);
 
     Ok(())
 }
@@ -164,7 +163,7 @@ fn read_int(
     let mut buffer = vec![0u8; compression_info.size_decompressed as usize];
     reader.read_exact(&mut buffer)?;
     let n = u32::from_le_bytes(buffer.try_into().unwrap());
-    println!("Int: {}", n);
+    println!("{:35} {}", "Int:", n);
     Ok(())
 }
 
